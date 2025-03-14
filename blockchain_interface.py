@@ -1,16 +1,23 @@
 from web3 import Web3
 from eth_account import Account
 import json
-from web3 import Web3
+import psycopg2
+from psycopg2 import sql
+
+# Connect to PostgreSQL database
+def get_db_connection():
+    conn = psycopg2.connect(
+        "postgresql://freelance%20project_owner:npg_plxMo5JSUr4y@ep-red-river-a5dg5di1-pooler.us-east-2.aws.neon.tech/freelance%20project?sslmode=require"
+    )
+    return conn
 
 # Connect to Ganache
 w3 = Web3(Web3.HTTPProvider("HTTP://127.0.0.1:8545"))
 
-# # Select a Ganache account with ETH
+# Select a Ganache account with ETH
 rich_account = w3.eth.accounts[1]  # First account (usually has 100 ETH)
 employer_wallet = "0xCA5f14aD1810761c3cD8991Cd8640dFc9e3E289a"  # Replace with your employer's wallet
 
-# # Send ETH (5 ETH for contract deployment)
 # Send ETH (50 ETH for contract deployment)
 txn_hash = w3.eth.send_transaction({
     "from": w3.eth.accounts[0],  # Use the first rich account from Ganache
@@ -20,7 +27,7 @@ txn_hash = w3.eth.send_transaction({
 
 print(f"Transaction Hash: {txn_hash.hex()}")
 
-# # Confirm balance
+# Confirm balance
 balance_wei = w3.eth.get_balance(employer_wallet)
 balance_eth = w3.from_wei(balance_wei, 'ether')
 print(f"Employer Wallet New Balance: {balance_eth} ETH")
@@ -91,13 +98,31 @@ class BlockchainInterface:
             tx_receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
 
             print(f"✅ Contract successfully deployed at: {tx_receipt.contractAddress}")
+
+            # Save contract details to PostgreSQL
+            self.save_contract_to_db(tx_receipt.contractAddress, employer_address, freelancer_address, job_description, amount)
+
             return tx_receipt.contractAddress
 
         except Exception as e:
             raise Exception(f"Failed to deploy contract: {str(e)}")
 
+    def save_contract_to_db(self, contract_address: str, employer_address: str, freelancer_address: str, job_description: str, amount: float):
+        """Save contract details to PostgreSQL database."""
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute('''
+                INSERT INTO contracts (contract_address, employer_address, freelancer_address, job_description, amount)
+                VALUES (%s, %s, %s, %s, %s)
+            ''', (contract_address, employer_address, freelancer_address, job_description, amount))
+            conn.commit()
+        except Exception as e:
+            print(f"Error saving contract to database: {e}")
+        finally:
+            cur.close()
+            conn.close()
 
-    
     def get_contract(self, contract_address: str):
         """Get contract instance at specified address."""
         return self.w3.eth.contract(
@@ -152,7 +177,6 @@ class BlockchainInterface:
         signed_txn = self.w3.eth.account.sign_transaction(tx, employer_private_key)
         tx_hash = self.w3.eth.send_raw_transaction(signed_txn.rawTransaction)
         return self.w3.eth.wait_for_transaction_receipt(tx_hash)
-    
     
     def get_contract_status(self, contract_address: str) -> dict:
         """Get current contract status and details."""
